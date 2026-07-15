@@ -1,12 +1,69 @@
-const workflow = ["Confirm the blast radius", "Inspect pod events", "Scale the recovered deployment"];
+import { TransformationShowcase } from "@/components/transformation-showcase";
+import Link from "next/link";
+
+const capabilities = [
+  ["Structured by design", "The interface renders a validated workflow DSL—not model-generated application code.", "01"],
+  ["Safe under pressure", "Commands are parameterized, reviewable, and never executed from the browser.", "02"],
+  ["Built for the handoff", "Shared state, audit context, and verifiable outcomes travel with every SOP.", "03"],
+];
+
+const schema = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "ContextSOP",
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Web",
+  description: "ContextSOP transforms incident transcripts into safe, interactive, and validated operational runbooks.",
+  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+};
 
 export default function Home() {
-  return <main className="mx-auto min-h-screen max-w-6xl px-6 py-10 md:px-10">
-    <nav className="flex items-center justify-between"><strong className="text-xl tracking-tight">Context<span className="text-[#38e8a0]">SOP</span></strong><a className="rounded-lg border border-[#203249] px-4 py-2 text-sm" href="#demo">View the workflow</a></nav>
-    <section className="grid gap-12 py-24 md:grid-cols-[1.05fr_.95fr] md:items-center">
-      <div><p className="mb-4 text-sm font-semibold tracking-[.18em] text-[#38e8a0]">INCIDENT OPERATIONS, COMPILED</p><h1 className="m-0 text-5xl font-semibold leading-[1.02] tracking-tight md:text-7xl">Turn incident noise into <span className="text-[#9b7bff]">reliable action.</span></h1><p className="mt-7 max-w-xl text-lg leading-8 text-[#93a6bd]">ContextSOP transforms operational transcripts into stateful, validated runbooks—so your team can move from diagnosis to recovery with confidence.</p><div className="mt-9 flex gap-3"><a className="rounded-lg bg-[#38e8a0] px-5 py-3 font-semibold text-[#07111f]" href="#demo">Explore the demo</a><a className="rounded-lg border border-[#203249] px-5 py-3 font-semibold" href="/dashboard">Open workspace</a></div></div>
-      <div id="demo" className="rounded-2xl border border-[#203249] bg-[#0b1728]/90 p-5 shadow-2xl shadow-black/20"><div className="mb-4 flex items-center gap-2 text-xs text-[#93a6bd]"><span className="h-2 w-2 rounded-full bg-[#f6b74c]" /> RAW INCIDENT → WORKFLOW DSL</div><div className="grid gap-4 sm:grid-cols-2"><pre className="m-0 overflow-auto rounded-xl bg-[#050c16] p-4 text-xs leading-6 text-[#93a6bd]">{`10:41 pod payments-api restarting\n10:43 OOMKilled confirmed\n10:47 raise memory limit\n10:49 rollout healthy`}</pre><div className="rounded-xl border border-[#38e8a0]/30 bg-[#0b201f] p-4"><p className="mt-0 text-xs font-semibold text-[#38e8a0]">RECOVERY RUNBOOK · 3 STEPS</p>{workflow.map((step, index) => <div className="mb-3 flex gap-2 text-sm" key={step}><span className="grid h-5 w-5 place-items-center rounded-full border border-[#38e8a0] text-[10px] text-[#38e8a0]">{index + 1}</span>{step}</div>)}<code className="block rounded bg-black/30 p-2 text-[11px] text-[#d7ccff]">kubectl rollout status deploy/$&#123;SERVICE&#125;</code></div></div></div>
-    </section>
-    <section className="grid gap-4 pb-12 md:grid-cols-3">{[["Structured by design", "The UI renders a validated workflow DSL—not model-generated code."], ["Safe under pressure", "Commands are parameterized and copyable, never executed in the browser."], ["Built for teams", "Tenant isolation, audit history, and execution state are first-class." ]].map(([title, body]) => <article className="rounded-xl border border-[#203249] bg-[#0b1728]/70 p-5" key={title}><h2 className="mt-0 text-base">{title}</h2><p className="mb-0 text-sm leading-6 text-[#93a6bd]">{body}</p></article>)}</section>
-  </main>;
+  return (
+    <main>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }} />
+      <div className="top-glow" />
+      <nav className="nav shell" aria-label="Primary navigation">
+        <Link className="brand" href="/" aria-label="ContextSOP home">Context<span>SOP</span></Link>
+        <div className="nav-actions">
+          <a className="text-link" href="#how-it-works">How it works</a>
+          <a className="button button-small button-quiet" href="/dashboard">Open workspace <span>↗</span></a>
+        </div>
+      </nav>
+
+      <section className="hero shell">
+        <div className="hero-copy">
+          <p className="eyebrow motion-enter delay-1"><i /> Incident operations, compiled</p>
+          <h1 className="motion-enter delay-2">Turn incident noise into <em>reliable action.</em></h1>
+          <p className="lede motion-enter delay-3">ContextSOP compiles scattered incident context into living, validated runbooks your team can execute with confidence.</p>
+          <div className="hero-actions motion-enter delay-4">
+            <a className="button button-primary" href="#demo">Explore the live demo <span>↓</span></a>
+            <a className="button button-quiet" href="/dashboard">Open workspace <span>↗</span></a>
+          </div>
+          <div className="trust-row motion-enter delay-5"><span><b>✓</b> Schema-validated</span><span><b>✓</b> Human-in-the-loop</span><span><b>✓</b> No browser execution</span></div>
+        </div>
+
+        <div className="hero-visual motion-enter delay-3" aria-hidden="true">
+          <div className="signal-grid" />
+          <div className="hero-orbit orbit-one" /><div className="hero-orbit orbit-two" />
+          <div className="signal-card primary-signal"><small>INCIDENT SIGNAL</small><strong>OOMKilled</strong><span><i className="status-dot amber" /> memory limit breached</span></div>
+          <div className="signal-card action-signal"><small>RECOVERY STEP</small><strong>03 / 03</strong><span><i className="status-dot emerald" /> rollout healthy</span></div>
+          <div className="hero-core"><div className="core-mark">◌</div><span>CONTEXT<br />COMPILER</span></div>
+        </div>
+      </section>
+
+      <section className="proof shell" aria-label="Product benefits">
+        <div><strong>messy context</strong><span>chat · alerts · shell output</span></div><b>→</b><div><strong>operational clarity</strong><span>steps · variables · verification</span></div><b>→</b><div><strong>safer response</strong><span>shared state · audit trail</span></div>
+      </section>
+
+      <TransformationShowcase />
+
+      <section className="capabilities shell" id="how-it-works" aria-labelledby="capabilities-heading">
+        <div className="section-heading"><div><p className="eyebrow">Designed for the moment that matters</p><h2 id="capabilities-heading">Confidence, without the theater.</h2></div><p>Directly useful for a responder; deliberately constrained for everyone else.</p></div>
+        <div className="capability-grid">{capabilities.map(([title, body, number]) => <article className="capability-card" key={title}><span>{number}</span><h3>{title}</h3><p>{body}</p><div className="card-line" /></article>)}</div>
+      </section>
+
+      <section className="closing shell"><p className="eyebrow">The runbook, reimagined</p><h2>Less archaeology.<br /><em>More recovery.</em></h2><Link className="button button-primary" href="/dashboard">Start with your incident context <span>→</span></Link></section>
+      <footer className="footer shell"><Link className="brand" href="/">Context<span>SOP</span></Link><p>Operational clarity for teams under pressure.</p><span>© {new Date().getFullYear()} ContextSOP</span></footer>
+    </main>
+  );
 }
