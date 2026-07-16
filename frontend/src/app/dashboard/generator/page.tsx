@@ -1,11 +1,11 @@
-export default function DashboardHome() {
+export default function SopGenerator() {
   return (
     <div>
       <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">
-        Dashboard Home
+        SOP Generator
       </h1>
       <p className="mt-2 text-sm text-text-muted">
-        Welcome to your ContextSOP workspace.
+        Ingest a transcript to generate a new SOP.
       </p>
     </div>
   );

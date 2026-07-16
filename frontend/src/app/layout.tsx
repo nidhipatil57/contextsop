@@ -35,14 +35,17 @@ export const metadata: Metadata = {
 };
 
 import { AuthProvider } from "@/components/auth-provider";
+import { ThemeProvider } from "@/components/providers/ThemeProvider";
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className={`${geist.variable} ${geistMono.variable}`}>
-        <AuthProvider>{children}</AuthProvider>
+        <ThemeProvider>
+          <AuthProvider>{children}</AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
