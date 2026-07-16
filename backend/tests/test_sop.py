@@ -196,3 +196,153 @@ def test_generate_sop_flow(mock_get, mock_post, mock_extract, client, auth_heade
     res_sop_updated = client.get(f"/api/v1/sop/{sop_id}", headers=auth_headers)
     assert res_sop_updated.status_code == 200
     assert res_sop_updated.json["title"] == "Updated Incident SOP"
+
+
+@patch("requests.post", side_effect=mock_post_side_effect)
+@patch("requests.get", side_effect=mock_get_side_effect)
+def test_sop_validation_reserved_keywords(mock_get, mock_post, client, auth_headers):
+    payload = {
+        "version": "1.0.0",
+        "metadata": {
+            "title": "Invalid Variable SOP",
+            "description": "Checks reserved keyword.",
+        },
+        "variables": [
+            {
+                "name": "IF",
+                "label": "Conditional",
+                "type": "string",
+                "defaultValue": "test",
+            }
+        ],
+        "steps": [
+            {
+                "id": "step-1",
+                "type": "command",
+                "title": "Run test",
+                "content": "echo test",
+            }
+        ],
+    }
+    res = client.put("/api/v1/sop/some-uuid", json=payload, headers=auth_headers)
+    assert res.status_code == 400
+    assert res.json["error"]["code"] == "VALIDATION_ERROR"
+    assert any("IF" in str(err) or "reserved" in str(err) for err in res.json["error"]["details"])
+
+
+@patch("requests.post", side_effect=mock_post_side_effect)
+@patch("requests.get", side_effect=mock_get_side_effect)
+def test_sop_validation_dependencies(mock_get, mock_post, client, auth_headers):
+    # 1. Missing dependency
+    payload_missing = {
+        "version": "1.0.0",
+        "metadata": {
+            "title": "Missing Dep SOP",
+            "description": "Checks missing dependencies.",
+        },
+        "variables": [],
+        "steps": [
+            {
+                "id": "step-1",
+                "type": "command",
+                "title": "Run test",
+                "content": "echo test",
+                "dependsOn": ["non-existent-step"],
+            }
+        ],
+    }
+    res = client.put("/api/v1/sop/some-uuid", json=payload_missing, headers=auth_headers)
+    assert res.status_code == 400
+    assert res.json["error"]["code"] == "VALIDATION_ERROR"
+    assert any("non-existent-step" in str(err) for err in res.json["error"]["details"])
+
+    # 2. Circular dependency
+    payload_circular = {
+        "version": "1.0.0",
+        "metadata": {
+            "title": "Circular Dep SOP",
+            "description": "Checks circular dependencies.",
+        },
+        "variables": [],
+        "steps": [
+            {
+                "id": "step-1",
+                "type": "command",
+                "title": "Step 1",
+                "content": "echo 1",
+                "dependsOn": ["step-2"],
+            },
+            {
+                "id": "step-2",
+                "type": "command",
+                "title": "Step 2",
+                "content": "echo 2",
+                "dependsOn": ["step-1"],
+            }
+        ],
+    }
+    res = client.put("/api/v1/sop/some-uuid", json=payload_circular, headers=auth_headers)
+    assert res.status_code == 400
+    assert res.json["error"]["code"] == "VALIDATION_ERROR"
+    assert any("Circular dependency" in str(err) for err in res.json["error"]["details"])
+
+
+def test_sop_migration_utility():
+    from app.schemas import migrate_sop_dsl, WorkflowDsl
+    legacy_payload = {
+        "version": "0.1",
+        "metadata": {
+            "title": "Legacy SOP",
+            "description": "A legacy format runbook.",
+        },
+        "variables": [
+            {
+                "name": "HOST",
+                "label": "Target Host",
+                "type": "string",
+                "default_value": "localhost",
+                "validation_regex": ".*",
+            }
+        ],
+        "steps": [
+            {
+                "id": "step-1",
+                "type": "command",
+                "title": "Run verify",
+                "content": "curl -s localhost",
+                "depends_on": ["step-2"],
+                "payload": {
+                    "command_string": "curl -s localhost",
+                    "warning_level": "info",
+                }
+            },
+            {
+                "id": "step-2",
+                "type": "warning",
+                "title": "Alert",
+                "content": "Attention",
+            }
+        ],
+    }
+    
+    migrated = migrate_sop_dsl(legacy_payload)
+    
+    assert migrated["version"] == "1.0.0"
+    assert "defaultValue" in migrated["variables"][0]
+    assert migrated["variables"][0]["defaultValue"] == "localhost"
+    assert "validationRegex" in migrated["variables"][0]
+    
+    assert "dependsOn" in migrated["steps"][0]
+    assert migrated["steps"][0]["dependsOn"] == ["step-2"]
+    
+    assert "commandString" in migrated["steps"][0]["payload"]
+    assert migrated["steps"][0]["payload"]["commandString"] == "curl -s localhost"
+    assert "warningLevel" in migrated["steps"][0]["payload"]
+    assert migrated["steps"][0]["payload"]["warningLevel"] == "info"
+    
+    validated = WorkflowDsl.model_validate(migrated)
+    assert validated.version == "1.0.0"
+    assert validated.variables[0].default_value == "localhost"
+    assert validated.steps[0].depends_on == ["step-2"]
+    assert validated.steps[0].payload.command_string == "curl -s localhost"
+

@@ -11,7 +11,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer
 
 from ..auth import require_auth
-from ..schemas import WorkflowDsl
+from ..schemas import WorkflowDsl, migrate_sop_dsl
 
 export_bp = Blueprint("export", __name__)
 
@@ -423,7 +423,9 @@ def export_markdown():
     """
     Exports a Workflow DSL to standard Markdown document.
     """
-    dsl = WorkflowDsl.model_validate(request.get_json(silent=True) or {})
+    raw_payload = request.get_json(silent=True) or {}
+    migrated_payload = migrate_sop_dsl(raw_payload)
+    dsl = WorkflowDsl.model_validate(migrated_payload)
     content = dsl_to_markdown(dsl)
 
     response = make_response(content)
@@ -438,7 +440,9 @@ def export_html():
     """
     Exports a Workflow DSL to standard rich interactive HTML template.
     """
-    dsl = WorkflowDsl.model_validate(request.get_json(silent=True) or {})
+    raw_payload = request.get_json(silent=True) or {}
+    migrated_payload = migrate_sop_dsl(raw_payload)
+    dsl = WorkflowDsl.model_validate(migrated_payload)
     content = dsl_to_html(dsl)
 
     response = make_response(content)
@@ -453,7 +457,9 @@ def export_pdf():
     """
     Streams a compiled PDF version of the Workflow DSL from temporary file to prevent server OOM.
     """
-    dsl = WorkflowDsl.model_validate(request.get_json(silent=True) or {})
+    raw_payload = request.get_json(silent=True) or {}
+    migrated_payload = migrate_sop_dsl(raw_payload)
+    dsl = WorkflowDsl.model_validate(migrated_payload)
 
     # Create temporary file
     temp_fd, temp_path = tempfile.mkstemp(suffix=".pdf")

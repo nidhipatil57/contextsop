@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from ..auth import require_auth
 from ..config import Settings
-from ..schemas import WorkflowDsl
+from ..schemas import WorkflowDsl, migrate_sop_dsl
 from ..services.llm import extract_sop_from_transcript
 from ..services.redaction import redact_secrets
 
@@ -175,7 +175,10 @@ def get_sop_details(sop_id: str):
         if not sops:
             return jsonify(error="Not Found", message="SOP record not found or inaccessible."), 404
 
-        return jsonify(sops[0])
+        sop_record = sops[0]
+        if "dsl_payload" in sop_record:
+            sop_record["dsl_payload"] = migrate_sop_dsl(sop_record["dsl_payload"])
+        return jsonify(sop_record)
     else:
         with sops_lock:
             sop = sops_db.get(sop_id)
@@ -183,7 +186,10 @@ def get_sop_details(sop_id: str):
         if not sop or sop["organization_id"] != g.org_id:
             return jsonify(error="Not Found", message="SOP record not found or inaccessible."), 404
 
-        return jsonify(sop)
+        sop_record = dict(sop)
+        if "dsl_payload" in sop_record:
+            sop_record["dsl_payload"] = migrate_sop_dsl(sop_record["dsl_payload"])
+        return jsonify(sop_record)
 
 
 @sop_bp.put("/<sop_id>")
@@ -192,7 +198,9 @@ def update_sop_details(sop_id: str):
     """
     Updates the SOP record details with a new validated Workflow DSL.
     """
-    dsl_payload = WorkflowDsl.model_validate(request.get_json(silent=True) or {})
+    raw_payload = request.get_json(silent=True) or {}
+    migrated_payload = migrate_sop_dsl(raw_payload)
+    dsl_payload = WorkflowDsl.model_validate(migrated_payload)
 
     supabase_url = os.getenv("SUPABASE_URL")
     supabase_anon_key = os.getenv("SUPABASE_ANON_KEY")

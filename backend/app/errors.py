@@ -7,7 +7,14 @@ from werkzeug.exceptions import HTTPException
 def register_error_handlers(app: Flask) -> None:
     @app.errorhandler(ValidationError)
     def validation_error(error: ValidationError):
-        return jsonify(error={"code": "VALIDATION_ERROR", "details": error.errors()}), 400
+        details = []
+        for err in error.errors():
+            details.append({
+                "loc": err.get("loc"),
+                "msg": str(err.get("msg")),
+                "type": err.get("type"),
+            })
+        return jsonify(error={"code": "VALIDATION_ERROR", "details": details}), 400
 
     @app.errorhandler(requests.exceptions.Timeout)
     def timeout_error(error: requests.exceptions.Timeout):
