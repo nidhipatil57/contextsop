@@ -38,7 +38,7 @@ create policy "tenant isolation for sops" on public.sops for all to authenticate
   with check (organization_id::text = coalesce(auth.jwt() ->> 'org_id', ''));
 
 -- Custom access token hook function to inject org_id into the JWT claims
-create or replace function auth.custom_access_token_hook(event jsonb)
+create or replace function public.custom_access_token_hook(event jsonb)
 returns jsonb
 language plpgsql
 stable
@@ -62,7 +62,7 @@ begin
 end;
 $$;
 
-grant execute on function auth.custom_access_token_hook(jsonb) to supabase_auth_admin;
+grant execute on function public.custom_access_token_hook(jsonb) to supabase_auth_admin;
 
 -- Trigger function to automatically create organization and profile on signup
 create or replace function public.handle_new_user()
