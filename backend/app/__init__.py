@@ -9,6 +9,7 @@ from .routes.auth import auth_bp
 from .routes.export import export_bp
 from .routes.health import health_bp
 from .routes.sop import sop_bp
+from .routes.component import component_bp
 
 
 def get_limiter_key() -> str:
@@ -34,6 +35,7 @@ def create_app() -> Flask:
     app.register_blueprint(sop_bp, url_prefix="/api/v1/sop")
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(export_bp, url_prefix="/api/v1/export")
+    app.register_blueprint(component_bp, url_prefix="/api/v1/component")
 
     register_error_handlers(app)
 

@@ -26,6 +26,8 @@ export default function DashboardLayout({
     let workspace = "dashboard";
     if (pathname === "/dashboard/generator") {
       workspace = "sop-generator";
+    } else if (pathname === "/dashboard/components") {
+      workspace = "components";
     } else if (pathname === "/dashboard/history") {
       workspace = "history";
     } else if (pathname === "/dashboard/templates") {

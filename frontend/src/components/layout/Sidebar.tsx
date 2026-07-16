@@ -16,6 +16,7 @@ import {
   Sun,
   Moon,
   Laptop,
+  Sparkles,
 } from "lucide-react";
 
 interface NavItem {
@@ -33,6 +34,7 @@ const navItems: NavItem[] = [
     exact: true,
   },
   { name: "SOP Generator", href: "/dashboard/generator", icon: FileCode },
+  { name: "UI Components", href: "/dashboard/components", icon: Sparkles },
   { name: "History Vault", href: "/dashboard/history", icon: History },
   {
     name: "Template Library",
