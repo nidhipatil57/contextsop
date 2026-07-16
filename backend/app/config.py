@@ -6,3 +6,6 @@ class Settings(BaseSettings):
     flask_env: str = "development"
     flask_secret_key: str = "unsafe-development-key"
     frontend_origin: str = "http://localhost:3000"
+    supabase_url: str | None = None
+    supabase_anon_key: str | None = None
+
