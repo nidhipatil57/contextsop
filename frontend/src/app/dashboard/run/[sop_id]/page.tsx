@@ -1,13 +1,25 @@
 "use client";
 
 import React, { useEffect, useState, use } from "react";
-import { getSop, Sop } from "@/lib/services/db";
+import {
+  getSop,
+  Sop,
+  createSopExecution,
+  updateSopExecution,
+} from "@/lib/services/db";
 import { useRunbookStore, StepStatus } from "@/stores/runbookStore";
-import { 
-  CheckCircle2, ChevronRight, Copy, Check, RefreshCw, 
-  AlertTriangle, Terminal, AlertCircle 
+import {
+  CheckCircle2,
+  ChevronRight,
+  Copy,
+  Check,
+  RefreshCw,
+  AlertTriangle,
+  Terminal,
+  AlertCircle,
 } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
+import { useAuth } from "@/components/auth-provider";
 
 interface PageProps {
   params: Promise<{ sop_id: string }>;
@@ -26,17 +38,26 @@ export default function RunbookPage({ params }: PageProps) {
   const variablesState = useRunbookStore((state) => state.variablesState);
   const activeStepIndex = useRunbookStore((state) => state.activeStepIndex);
   const verificationLogs = useRunbookStore((state) => state.verificationLogs);
+  const executionId = useRunbookStore((state) => state.executionId);
 
   const initializeRun = useRunbookStore((state) => state.initializeRun);
+  const setExecutionId = useRunbookStore((state) => state.setExecutionId);
   const updateVariable = useRunbookStore((state) => state.updateVariable);
   const setStepStatus = useRunbookStore((state) => state.setStepStatus);
-  const setActiveStepIndex = useRunbookStore((state) => state.setActiveStepIndex);
-  const setVerificationLog = useRunbookStore((state) => state.setVerificationLog);
+  const setActiveStepIndex = useRunbookStore(
+    (state) => state.setActiveStepIndex,
+  );
+  const setVerificationLog = useRunbookStore(
+    (state) => state.setVerificationLog,
+  );
   const resetRun = useRunbookStore((state) => state.resetRun);
 
-  // 1. Fetch SOP detail from DB or fallback
+  const { user, profile } = useAuth();
+
+  // 1. Fetch SOP detail from DB and initialize run
   useEffect(() => {
     async function loadSop() {
+      if (!user || !profile) return;
       try {
         setLoading(true);
         const record = await getSop(sop_id);
@@ -48,24 +69,105 @@ export default function RunbookPage({ params }: PageProps) {
           initialVars[v.name] = v.defaultValue;
         });
 
-        // Initialize state progress tracking
         const stepIds = record.dsl_payload.steps.map((s) => s.id);
-        initializeRun(sop_id, stepIds, initialVars);
+
+        // If it's a new SOP or we don't have an active executionId, create one
+        const storeSopId = useRunbookStore.getState().sopId;
+        const storeExecutionId = useRunbookStore.getState().executionId;
+
+        if (storeSopId !== sop_id || !storeExecutionId) {
+          // Initialize local store first (set executionId = null temporarily)
+          initializeRun(sop_id, stepIds, initialVars, null);
+
+          // Create the execution record in database
+          const exec = await createSopExecution(
+            sop_id,
+            user.id,
+            profile.organization_id,
+            initialVars,
+          );
+          setExecutionId(exec.id);
+        }
       } catch (err) {
         console.error("Failed to load runbook SOP:", err);
-        setError("Could not retrieve SOP details. Make sure the record exists.");
+        setError(
+          "Could not retrieve SOP details. Make sure the record exists.",
+        );
       } finally {
         setLoading(false);
       }
     }
-    loadSop();
-  }, [sop_id, initializeRun]);
+    if (user && profile) {
+      loadSop();
+    }
+  }, [sop_id, user, profile, initializeRun, setExecutionId]);
+
+  // 1.1. Synchronize execution progress to the database
+  useEffect(() => {
+    if (!executionId || !sop) return;
+
+    // Extract completed steps from store
+    const completed = Object.entries(stepsProgress)
+      .filter(([, status]) => status === "completed" || status === "skipped")
+      .map(([stepId]) => stepId);
+
+    // Determine current overall status
+    let currentStatus: "running" | "completed" | "failed" | "aborted" =
+      "running";
+    const allStepsCount = sop.dsl_payload.steps.length;
+    if (completed.length === allStepsCount) {
+      currentStatus = "completed";
+    }
+
+    // Debounced sync to database
+    const timer = setTimeout(async () => {
+      try {
+        await updateSopExecution(
+          executionId,
+          completed,
+          currentStatus,
+          variablesState,
+        );
+      } catch (err) {
+        console.error("Failed to sync execution progress to DB:", err);
+      }
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [executionId, stepsProgress, variablesState, sop]);
+
+  const handleResetAndStartNewRun = async () => {
+    if (!sop || !user || !profile) return;
+    try {
+      resetRun();
+      const stepIds = sop.dsl_payload.steps.map((s) => s.id);
+      const initialVars: Record<string, string> = {};
+      sop.dsl_payload.variables.forEach((v) => {
+        initialVars[v.name] = v.defaultValue;
+      });
+
+      // Create new execution record in database
+      const exec = await createSopExecution(
+        sop_id,
+        user.id,
+        profile.organization_id,
+        initialVars,
+      );
+
+      initializeRun(sop_id, stepIds, initialVars, exec.id);
+    } catch (err) {
+      console.error("Failed to create new execution run:", err);
+    }
+  };
 
   // 2. Interpolate variable placeholders in strings with try-catch fallback
-  const interpolateString = (template: string, vars: Record<string, string>): string => {
+  const interpolateString = (
+    template: string,
+    vars: Record<string, string>,
+  ): string => {
     try {
-      return template.replace(/\{\{([A-Z0-9_]+)\}\}/g, (_, g1) => {
-        return vars[g1] !== undefined ? vars[g1] : `{{${g1}}}`;
+      return template.replace(/\{\{([A-Z0-9_]+)\}\}/g, (match, g1) => {
+        return vars[g1] !== undefined ? vars[g1] : match;
       });
     } catch (e) {
       console.error("Interpolation failed, rendering raw string fallback:", e);
@@ -82,7 +184,11 @@ export default function RunbookPage({ params }: PageProps) {
   };
 
   // 4. Trigger SSRF-mitigated backend verification check
-  const handleVerify = async (stepId: string, rawUrl: string, expectedResponse?: string) => {
+  const handleVerify = async (
+    stepId: string,
+    rawUrl: string,
+    expectedResponse?: string,
+  ) => {
     setVerifyingStepId(stepId);
     setVerificationLog(stepId, {
       status: "running",
@@ -118,13 +224,14 @@ export default function RunbookPage({ params }: PageProps) {
 
       setVerificationLog(stepId, {
         status: statusMatched ? "success" : "failure",
-        message: statusMatched 
+        message: statusMatched
           ? `[SUCCESS] Host responded with expected code ${data.statusCode} (${data.statusText}).`
           : `[FAILED] Expected response code ${matchCode}, but received status code ${data.statusCode} (${data.statusText}).`,
         timestamp: new Date().toLocaleTimeString(),
       });
     } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : "Unknown connection issue";
+      const errMsg =
+        err instanceof Error ? err.message : "Unknown connection issue";
       setVerificationLog(stepId, {
         status: "failure",
         message: `[ERROR] Verification connection failed: ${errMsg}`,
@@ -139,7 +246,9 @@ export default function RunbookPage({ params }: PageProps) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
         <RefreshCw className="w-8 h-8 animate-spin text-accent-primary" />
-        <span className="text-sm font-semibold text-text-muted font-mono">Loading Interactive Runbook...</span>
+        <span className="text-sm font-semibold text-text-muted font-mono">
+          Loading Interactive Runbook...
+        </span>
       </div>
     );
   }
@@ -171,7 +280,7 @@ export default function RunbookPage({ params }: PageProps) {
   const handleStepComplete = (index: number) => {
     const currentStep = steps[index];
     setStepStatus(currentStep.id, "completed");
-    
+
     if (index + 1 < steps.length) {
       const nextStep = steps[index + 1];
       setStepStatus(nextStep.id, "active");
@@ -185,7 +294,7 @@ export default function RunbookPage({ params }: PageProps) {
   const handleStepSkip = (index: number) => {
     const currentStep = steps[index];
     setStepStatus(currentStep.id, "skipped");
-    
+
     if (index + 1 < steps.length) {
       const nextStep = steps[index + 1];
       setStepStatus(nextStep.id, "active");
@@ -204,7 +313,8 @@ export default function RunbookPage({ params }: PageProps) {
             Run Parameters
           </h3>
           <p className="text-xs text-text-muted">
-            Modify values below to instantly update variables across all command boxes.
+            Modify values below to instantly update variables across all command
+            boxes.
           </p>
         </div>
 
@@ -240,15 +350,7 @@ export default function RunbookPage({ params }: PageProps) {
         )}
 
         <button
-          onClick={() => {
-            resetRun();
-            const stepIds = steps.map((s) => s.id);
-            const initialVars: Record<string, string> = {};
-            variables.forEach((v) => {
-              initialVars[v.name] = v.defaultValue;
-            });
-            initializeRun(sop_id, stepIds, initialVars);
-          }}
+          onClick={handleResetAndStartNewRun}
           className="w-full flex items-center justify-center gap-2 border border-box-border bg-background hover:bg-box-border text-xs font-semibold py-2.5 rounded-lg text-foreground transition select-none cursor-pointer"
         >
           <RefreshCw className="w-3.5 h-3.5" />
@@ -265,7 +367,9 @@ export default function RunbookPage({ params }: PageProps) {
               <span className="text-[10px] uppercase font-bold tracking-wider text-accent-primary bg-accent-primary/10 border border-accent-primary/20 px-2 py-0.5 rounded">
                 Live Incident Runbook
               </span>
-              <h2 className="text-xl font-bold text-foreground">{metadata.title}</h2>
+              <h2 className="text-xl font-bold text-foreground">
+                {metadata.title}
+              </h2>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold border bg-emerald-500/10 text-emerald-400 border-emerald-500/20 capitalize font-mono animate-pulse">
@@ -273,20 +377,31 @@ export default function RunbookPage({ params }: PageProps) {
               </span>
             </div>
           </div>
-          <p className="text-sm text-text-muted leading-relaxed">{metadata.description}</p>
+          <p className="text-sm text-text-muted leading-relaxed">
+            {metadata.description}
+          </p>
           <div className="flex flex-wrap gap-4 text-xs font-mono text-text-muted">
             {metadata.targetEnvironment && (
               <div>
-                Target Env: <span className="text-slate-300">{metadata.targetEnvironment}</span>
+                Target Env:{" "}
+                <span className="text-slate-300">
+                  {metadata.targetEnvironment}
+                </span>
               </div>
             )}
             {metadata.estimatedDuration && (
               <div>
-                Estimated: <span className="text-slate-300">{metadata.estimatedDuration} mins</span>
+                Estimated:{" "}
+                <span className="text-slate-300">
+                  {metadata.estimatedDuration} mins
+                </span>
               </div>
             )}
             <div>
-              Ordering: <span className="text-slate-300">{isSequential ? "Strict (Sequential)" : "Unconstrained"}</span>
+              Ordering:{" "}
+              <span className="text-slate-300">
+                {isSequential ? "Strict (Sequential)" : "Unconstrained"}
+              </span>
             </div>
           </div>
         </div>
@@ -298,7 +413,8 @@ export default function RunbookPage({ params }: PageProps) {
               Operations Checklist
             </span>
             <span className="text-[10px] font-mono text-text-muted bg-box-line-numbers-bg px-2 py-0.5 rounded border border-box-border">
-              Displaying steps {windowStart + 1}-{Math.min(steps.length, windowEnd)} of {steps.length}
+              Displaying steps {windowStart + 1}-
+              {Math.min(steps.length, windowEnd)} of {steps.length}
             </span>
           </div>
 
@@ -306,21 +422,16 @@ export default function RunbookPage({ params }: PageProps) {
             <div className="p-8 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 text-center space-y-4 max-w-md mx-auto">
               <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
               <div className="space-y-1">
-                <h3 className="text-lg font-bold text-foreground">SOP Execution Complete</h3>
+                <h3 className="text-lg font-bold text-foreground">
+                  SOP Execution Complete
+                </h3>
                 <p className="text-xs text-text-muted leading-relaxed">
-                  All procedures have been successfully logged, verified, and closed. Thank you.
+                  All procedures have been successfully logged, verified, and
+                  closed. Thank you.
                 </p>
               </div>
               <button
-                onClick={() => {
-                  resetRun();
-                  const stepIds = steps.map((s) => s.id);
-                  const initialVars: Record<string, string> = {};
-                  variables.forEach((v) => {
-                    initialVars[v.name] = v.defaultValue;
-                  });
-                  initializeRun(sop_id, stepIds, initialVars);
-                }}
+                onClick={handleResetAndStartNewRun}
                 className="inline-flex items-center gap-2 bg-emerald-500 text-slate-950 font-semibold text-xs py-2 px-4 rounded-lg cursor-pointer hover:scale-105 transition"
               >
                 Start New Run
@@ -340,10 +451,10 @@ export default function RunbookPage({ params }: PageProps) {
                     isActive
                       ? "border-accent-primary bg-[#081324] shadow-[0_0_15px_rgba(182,156,255,0.08)] ring-1 ring-accent-primary/20 scale-[1.01]"
                       : isLocked
-                      ? "border-box-border/60 bg-background/20 opacity-40 select-none pointer-events-none"
-                      : status === "completed"
-                      ? "border-emerald-500/20 bg-emerald-500/[0.02]"
-                      : "border-box-border bg-box-bg/50"
+                        ? "border-box-border/60 bg-background/20 opacity-40 select-none pointer-events-none"
+                        : status === "completed"
+                          ? "border-emerald-500/20 bg-emerald-500/[0.02]"
+                          : "border-box-border bg-box-bg/50"
                   }`}
                 >
                   {/* Step Header */}
@@ -369,7 +480,9 @@ export default function RunbookPage({ params }: PageProps) {
                           </span>
                         )}
                       </div>
-                      <h4 className="text-sm font-bold text-foreground">{step.title}</h4>
+                      <h4 className="text-sm font-bold text-foreground">
+                        {step.title}
+                      </h4>
                     </div>
                   </div>
 
@@ -383,13 +496,19 @@ export default function RunbookPage({ params }: PageProps) {
                     <div className="mt-4 space-y-2">
                       <div className="relative rounded-xl bg-slate-950 border border-slate-800 p-4 font-mono text-xs text-slate-200 overflow-x-auto leading-relaxed group">
                         <pre className="pr-12 select-all">
-                          {interpolateString(step.payload?.commandString || "", variablesState)}
+                          {interpolateString(
+                            step.payload?.commandString || "",
+                            variablesState,
+                          )}
                         </pre>
                         <button
                           onClick={() =>
                             handleCopy(
-                              interpolateString(step.payload?.commandString || "", variablesState),
-                              step.id
+                              interpolateString(
+                                step.payload?.commandString || "",
+                                variablesState,
+                              ),
+                              step.id,
                             )
                           }
                           className="absolute right-3 top-3 p-1.5 rounded-lg border border-slate-800 hover:border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-200 transition duration-150 cursor-pointer"
@@ -421,52 +540,55 @@ export default function RunbookPage({ params }: PageProps) {
                   )}
 
                   {/* Verification URL integration */}
-                  {step.type === "verification" && step.payload?.verificationUrl && (
-                    <div className="mt-4 space-y-3">
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={() =>
-                            handleVerify(
-                              step.id,
-                              step.payload?.verificationUrl || "",
-                              step.payload?.verificationExpectedResponse
-                            )
-                          }
-                          disabled={verifyingStepId !== null}
-                          className="inline-flex items-center gap-2 bg-gradient-to-r from-teal-500 to-emerald-500 text-slate-950 font-semibold text-xs py-2 px-4 rounded-lg hover:scale-105 active:scale-95 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed select-none"
-                        >
-                          <Terminal className="w-3.5 h-3.5" />
-                          Verify Configuration
-                        </button>
-                        {step.payload.verificationExpectedResponse && (
-                          <span className="text-[10px] text-text-muted font-mono">
-                            Expected Status: {step.payload.verificationExpectedResponse}
-                          </span>
+                  {step.type === "verification" &&
+                    step.payload?.verificationUrl && (
+                      <div className="mt-4 space-y-3">
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() =>
+                              handleVerify(
+                                step.id,
+                                step.payload?.verificationUrl || "",
+                                step.payload?.verificationExpectedResponse,
+                              )
+                            }
+                            disabled={verifyingStepId !== null}
+                            className="inline-flex items-center gap-2 bg-gradient-to-r from-teal-500 to-emerald-500 text-slate-950 font-semibold text-xs py-2 px-4 rounded-lg hover:scale-105 active:scale-95 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed select-none"
+                          >
+                            <Terminal className="w-3.5 h-3.5" />
+                            Verify Configuration
+                          </button>
+                          {step.payload.verificationExpectedResponse && (
+                            <span className="text-[10px] text-text-muted font-mono">
+                              Expected Status:{" "}
+                              {step.payload.verificationExpectedResponse}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Live Verification Console Output */}
+                        {verificationLogs[step.id] && (
+                          <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 font-mono text-xs space-y-1 shadow-inner select-text">
+                            <div className="flex items-center justify-between text-[10px] text-text-muted border-b border-slate-900 pb-2 mb-2 select-none">
+                              <span>Status Console Output</span>
+                              <span>{verificationLogs[step.id].timestamp}</span>
+                            </div>
+                            <p
+                              className={
+                                verificationLogs[step.id].status === "success"
+                                  ? "text-emerald-400"
+                                  : verificationLogs[step.id].status ===
+                                      "running"
+                                    ? "text-slate-400 animate-pulse"
+                                    : "text-red-400"
+                              }
+                            >
+                              {verificationLogs[step.id].message}
+                            </p>
+                          </div>
                         )}
                       </div>
-
-                      {/* Live Verification Console Output */}
-                      {verificationLogs[step.id] && (
-                        <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 font-mono text-xs space-y-1 shadow-inner select-text">
-                          <div className="flex items-center justify-between text-[10px] text-text-muted border-b border-slate-900 pb-2 mb-2 select-none">
-                            <span>Status Console Output</span>
-                            <span>{verificationLogs[step.id].timestamp}</span>
-                          </div>
-                          <p
-                            className={
-                              verificationLogs[step.id].status === "success"
-                                ? "text-emerald-400"
-                                : verificationLogs[step.id].status === "running"
-                                ? "text-slate-400 animate-pulse"
-                                : "text-red-400"
-                            }
-                          >
-                            {verificationLogs[step.id].message}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                    )}
 
                   {/* Manual Step Advancement Controls */}
                   {isActive && (

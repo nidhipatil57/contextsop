@@ -217,20 +217,39 @@ def update_sop_details(sop_id: str):
         if verify_res.status_code != 200 or not verify_res.json():
             return jsonify(error="Not Found", message="SOP not found or access denied."), 404
 
+        # Retrieve expected version from payload
+        expected_version = raw_payload.get("expectedVersionNumber") or raw_payload.get(
+            "expected_version_number"
+        )
+
         # Execute custom Postgres stored procedure create_new_sop_version
         rpc_payload = {
             "p_sop_id": sop_id,
             "p_dsl_payload": dsl_payload.model_dump(by_alias=True),
             "p_updated_by": g.user_id,
         }
+        if expected_version is not None:
+            rpc_payload["p_expected_version_number"] = int(expected_version)
+
         res = requests.post(
             f"{supabase_url}/rest/v1/rpc/create_new_sop_version",
             json=rpc_payload,
             headers=headers,
         )
         if res.status_code not in (200, 201):
+            error_text = res.text
+            if "VersionConflict" in error_text:
+                return (
+                    jsonify(
+                        error="VersionConflict",
+                        message=(
+                            "The SOP was modified by another session. Please reload and try again."
+                        ),
+                    ),
+                    409,
+                )
             return (
-                jsonify(error="Database Stored Procedure Error", message=res.text),
+                jsonify(error="Database Stored Procedure Error", message=error_text),
                 res.status_code,
             )
 
@@ -280,19 +299,18 @@ def verify_endpoint():
             return jsonify(error="Validation Error", message="Invalid URL hostname."), 400
 
         # Enforce domain whitelist check
-        if domain.lower() not in ALLOWED_VERIFICATION_DOMAINS and not domain.endswith(".status.payment-service.com"):
+        is_allowed = domain.lower() in ALLOWED_VERIFICATION_DOMAINS or domain.endswith(
+            ".status.payment-service.com"
+        )
+        if not is_allowed:
             return jsonify(
                 error="Unauthorized Domain",
-                message=f"Verification domain '{domain}' is not in the approved whitelist."
+                message=f"Verification domain '{domain}' is not in the approved whitelist.",
             ), 400
 
         # Perform the verification check (with timeout)
         res = requests.get(url, timeout=5)
-        return jsonify(
-            statusCode=res.status_code,
-            statusText=res.reason,
-            ok=res.status_code < 400
-        )
+        return jsonify(statusCode=res.status_code, statusText=res.reason, ok=res.status_code < 400)
     except requests.exceptions.RequestException as e:
         return jsonify(error="Connection Failed", message=str(e)), 400
     except Exception as e:

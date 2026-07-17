@@ -11,12 +11,19 @@ export interface VerificationLog {
 
 export interface RunbookState {
   sopId: string | null;
+  executionId: string | null;
   stepsProgress: Record<string, StepStatus>;
   variablesState: Record<string, string>;
   activeStepIndex: number;
   verificationLogs: Record<string, VerificationLog>;
 
-  initializeRun: (sopId: string, stepIds: string[], initialVariables: Record<string, string>) => void;
+  initializeRun: (
+    sopId: string,
+    stepIds: string[],
+    initialVariables: Record<string, string>,
+    executionId?: string | null,
+  ) => void;
+  setExecutionId: (executionId: string | null) => void;
   updateVariable: (name: string, value: string) => void;
   setStepStatus: (stepId: string, status: StepStatus) => void;
   setActiveStepIndex: (index: number) => void;
@@ -28,12 +35,13 @@ export const useRunbookStore = create<RunbookState>()(
   persist(
     (set) => ({
       sopId: null,
+      executionId: null,
       stepsProgress: {},
       variablesState: {},
       activeStepIndex: 0,
       verificationLogs: {},
 
-      initializeRun: (sopId, stepIds, initialVariables) =>
+      initializeRun: (sopId, stepIds, initialVariables, executionId = null) =>
         set((state) => {
           if (state.sopId === sopId) {
             return {};
@@ -44,12 +52,15 @@ export const useRunbookStore = create<RunbookState>()(
           });
           return {
             sopId,
+            executionId,
             stepsProgress: progress,
             variablesState: initialVariables,
             activeStepIndex: 0,
             verificationLogs: {},
           };
         }),
+
+      setExecutionId: (executionId) => set(() => ({ executionId })),
 
       updateVariable: (name, value) =>
         set((state) => ({
@@ -74,6 +85,7 @@ export const useRunbookStore = create<RunbookState>()(
       resetRun: () =>
         set(() => ({
           sopId: null,
+          executionId: null,
           stepsProgress: {},
           variablesState: {},
           activeStepIndex: 0,
@@ -83,6 +95,6 @@ export const useRunbookStore = create<RunbookState>()(
     {
       name: "active-runbook-execution",
       storage: createJSONStorage(() => sessionStorage),
-    }
-  )
+    },
+  ),
 );

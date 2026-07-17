@@ -67,16 +67,37 @@ export async function createProject(
 /**
  * Retrieves all projects associated with the organization.
  */
-export async function listProjects(organizationId: string): Promise<Project[]> {
+export async function listProjects(
+  organizationId: string,
+  includeDeleted = false,
+): Promise<Project[]> {
   const supabase = createClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("projects")
     .select("*")
-    .eq("organization_id", organizationId)
-    .order("created_at", { ascending: false });
+    .eq("organization_id", organizationId);
+
+  if (!includeDeleted) {
+    query = query.eq("deleted", false);
+  }
+
+  const { data, error } = await query.order("created_at", { ascending: false });
 
   if (error) throw error;
   return data as Project[];
+}
+
+/**
+ * Soft deletes a project by setting the deleted flag.
+ */
+export async function deleteProject(projectId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("projects")
+    .update({ deleted: true })
+    .eq("id", projectId);
+
+  if (error) throw error;
 }
 
 /**
@@ -148,12 +169,15 @@ export async function updateSop(
   sopId: string,
   dslPayload: WorkflowDsl,
   userId: string,
+  expectedVersionNumber?: number,
 ): Promise<string> {
   const supabase = createClient();
   const { data, error } = await supabase.rpc("create_new_sop_version", {
     p_sop_id: sopId,
     p_dsl_payload: dslPayload as unknown as Record<string, unknown>,
     p_updated_by: userId,
+    p_expected_version_number:
+      expectedVersionNumber !== undefined ? expectedVersionNumber : null,
   });
 
   if (error) throw error;
@@ -165,13 +189,21 @@ export async function updateSop(
  */
 export async function listSops(
   organizationId: string,
-  options?: { projectId?: string; searchQuery?: string },
+  options?: {
+    projectId?: string;
+    searchQuery?: string;
+    includeArchived?: boolean;
+  },
 ): Promise<Sop[]> {
   const supabase = createClient();
   let query = supabase
     .from("sops")
     .select("*")
     .eq("organization_id", organizationId);
+
+  if (!options?.includeArchived) {
+    query = query.eq("archived", false);
+  }
 
   if (options?.projectId) {
     query = query.eq("project_id", options.projectId);
@@ -187,6 +219,37 @@ export async function listSops(
 
   if (error) throw error;
   return data as Sop[];
+}
+
+/**
+ * Soft deletes/archives an SOP.
+ */
+export async function archiveSop(
+  sopId: string,
+  archived: boolean,
+): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("sops")
+    .update({ archived })
+    .eq("id", sopId);
+
+  if (error) throw error;
+}
+
+/**
+ * Lists historical version edits of an SOP.
+ */
+export async function listSopVersions(sopId: string): Promise<SopVersion[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("sop_versions")
+    .select("*")
+    .eq("sop_id", sopId)
+    .order("version_number", { ascending: false });
+
+  if (error) throw error;
+  return data as SopVersion[];
 }
 
 /**
@@ -222,6 +285,7 @@ export async function updateSopExecution(
   executionId: string,
   completedSteps: string[],
   status: "running" | "completed" | "failed" | "aborted",
+  variableState?: Record<string, unknown>,
 ): Promise<SopExecution> {
   const supabase = createClient();
   const { data, error } = await supabase
@@ -229,6 +293,7 @@ export async function updateSopExecution(
     .update({
       completed_steps: completedSteps,
       status,
+      ...(variableState && { variable_state: variableState }),
     })
     .eq("id", executionId)
     .select()
